@@ -5,13 +5,31 @@
 %{
     #include "ciLisp.h"
 %}
-
+letter [a-zA-Z]
+symbol {letter}+
 digit [0-9]
 int [+-]?{digit}+
 double [+-]?{digit}+\.{digit}*
-func "neg"|"abs"|"exp"|"sqrt"|"add"|"sub"|"mult"|"div"|"remainder"|"log"|"pow"|"max"|"min"
+func "neg"|"abs"|"exp"|"sqrt"|"add"|"sub"|"mult"|"div"|"remainder"|"log"|"pow"|"max"|"min"|"exp2"|"cbrt"|"hypot"
 
 %%
+"(" {
+    fprintf(stderr, "lex: LPAREN\n");
+    return LPAREN;
+    }
+
+")" {
+    fprintf(stderr, "lex: RPAREN\n");
+    return RPAREN;
+    }
+"quit" {
+    return QUIT;
+    }
+
+"let" {
+    fprintf(stderr, "lex: LET\n");
+    return LET;
+    }
 
 {int} {
     yylval.dval = strtod(yytext, NULL);
@@ -25,10 +43,6 @@ func "neg"|"abs"|"exp"|"sqrt"|"add"|"sub"|"mult"|"div"|"remainder"|"log"|"pow"|"
     return DOUBLE;
 }
 
-"quit" {
-    return QUIT;
-    }
-
 {func} {
     yylval.sval = (char *) malloc(strlen(yytext)*sizeof(char)+1);
     strcpy(yylval.sval, yytext);
@@ -36,14 +50,11 @@ func "neg"|"abs"|"exp"|"sqrt"|"add"|"sub"|"mult"|"div"|"remainder"|"log"|"pow"|"
     return FUNC;
     }
 
-"(" {
-    fprintf(stderr, "lex: LPAREN\n");
-    return LPAREN;
-    }
-
-")" {
-    fprintf(stderr, "lex: RPAREN\n");
-    return RPAREN;
+{symbol} {
+    yylval.sval = (char *) malloc(strlen(yytext)*sizeof(char)+1);
+    strcpy(yylval.sval, yytext);
+    fprintf(stderr, "lex: SYMBOL sval = %s\n", yylval.sval);
+    return SYMBOL;
     }
 
 [\n] {
@@ -65,7 +76,7 @@ func "neg"|"abs"|"exp"|"sqrt"|"add"|"sub"|"mult"|"div"|"remainder"|"log"|"pow"|"
  */
 int main(void) {
 
-    //   freopen("/dev/null", "w", stderr); // except for this line that can be uncommented to throw away debug printouts
+     //  freopen("/dev/null", "w", stderr); // except for this line that can be uncommented to throw away debug printouts
 
     char *s_expr_str = NULL;
     size_t s_expr_str_len = 0;
