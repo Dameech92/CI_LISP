@@ -8,11 +8,11 @@
 letter [a-zA-Z]
 symbol {letter}+
 digit [0-9]
-int [+-]?{digit}+
-double [+-]?{digit}+\.{digit}*
-func "neg"|"abs"|"exp"|"sqrt"|"add"|"sub"|"mult"|"div"|"remainder"|"log"|"pow"|"max"|"min"|"exp2"|"cbrt"|"hypot"
-
+int_literal [+-]?{digit}+
+double_literal [+-]?{digit}+\.{digit}*
+func "neg"|"abs"|"exp"|"sqrt"|"add"|"sub"|"mult"|"div"|"remainder"|"log"|"pow"|"max"|"min"|"exp2"|"cbrt"|"hypot"|"print"|"rand"|"read"|"equal"|"less"|"greater"
 %%
+
 "(" {
     fprintf(stderr, "lex: LPAREN\n");
     return LPAREN;
@@ -31,16 +31,33 @@ func "neg"|"abs"|"exp"|"sqrt"|"add"|"sub"|"mult"|"div"|"remainder"|"log"|"pow"|"
     return LET;
     }
 
-{int} {
+"int" {
+    fprintf(stderr, "lex: INT_TYPE\n");
+    return INT;
+    }
+
+"double" {
+    fprintf(stderr, "lex: DOUBLE_TYPE\n");
+    return DOUBLE;
+    }
+"cond"  {
+    fprintf(stderr, "lex: COND\n");
+    return COND;
+    }
+"lambda" {
+    fprintf(stderr, "lex: LAMBDA\n");
+    return LAMBDA;
+}
+{int_literal} {
     yylval.dval = strtod(yytext, NULL);
     fprintf(stderr, "lex: INT dval = %lf\n", yylval.dval);
-    return INT;
+    return INT_LITERAL;
 }
 
-{double} {
+{double_literal} {
     yylval.dval = strtod(yytext, NULL);
     fprintf(stderr, "lex: DOUBLE dval = %lf\n", yylval.dval);
-    return DOUBLE;
+    return DOUBLE_LITERAL;
 }
 
 {func} {
@@ -76,7 +93,7 @@ func "neg"|"abs"|"exp"|"sqrt"|"add"|"sub"|"mult"|"div"|"remainder"|"log"|"pow"|"
  */
 int main(void) {
 
-     //  freopen("/dev/null", "w", stderr); // except for this line that can be uncommented to throw away debug printouts
+       freopen("/dev/null", "w", stderr); // except for this line that can be uncommented to throw away debug printouts
 
     char *s_expr_str = NULL;
     size_t s_expr_str_len = 0;

@@ -1,4 +1,57 @@
+/*
+ * ciLisp task 1-8.5 done
+ * Dimitri Cognata
+ * version 8.5
+ * Monday December 9, 2019
+ *
+ *
+ * */
+
 #include "ciLisp.h"
+#include "limits.h"
+
+
+#define DEFAULT_RET_VAL ((RET_VAL){INT_TYPE, NAN})
+
+#define MAX_NARY_ARGS INT_MAX
+
+RET_VAL neg_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL abs_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL exp_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL sqrt_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL add_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL subtract_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL multiply_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL divide_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL remainder_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL log_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL pow_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL max_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL min_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL exp2_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL cbrt_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL hypot_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL rand_Helper(AST_NODE *node);
+RET_VAL read_Helper(AST_NODE *node);
+RET_VAL equal_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL less_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL greater_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL printHelper(FUNC_AST_NODE *funcNode);
+
+//task5 addition for the opList and for seperating the math functions
+RET_VAL evalZeroAry(AST_NODE *root);
+RET_VAL evalUnary(FUNC_AST_NODE *funcNode);
+RET_VAL evalBinary(FUNC_AST_NODE *funcNode);
+RET_VAL evalNary(FUNC_AST_NODE *funcNode);
+
+typedef enum arity_flag {
+    NULLARY,
+    ZEROARY,
+    UNARY,
+    BINARY,
+    NARY
+} FUNCTION_ARITY;
+
 
 void yyerror(char *s) {
     fprintf(stderr, "\nERROR: %s\n", s);
@@ -34,11 +87,9 @@ char *funcNames[] = {
         ""
 };
 
-OPER_TYPE resolveFunc(char *funcName)
-{
+OPER_TYPE resolveFunc(char *funcName) {
     int i = 0;
-    while (funcNames[i][0] != '\0')
-    {
+    while (funcNames[i][0] != '\0') {
         if (strcmp(funcNames[i], funcName) == 0)
             return i;
         i++;
@@ -46,36 +97,35 @@ OPER_TYPE resolveFunc(char *funcName)
     return CUSTOM_OPER;
 }
 
+AST_NODE *createNewNode(AST_NODE_TYPE type) {
+    AST_NODE *node = calloc(1, sizeof(AST_NODE));
+    if (node == NULL) {
+        yyerror("Memory allocation failed!");
+        return NULL;
+    }
+    node->type = type;
+    return node;
+}
+
+SYMBOL_TABLE_NODE *createNewSymbol() {
+    SYMBOL_TABLE_NODE *node = calloc(1, sizeof(SYMBOL_TABLE_NODE));
+    if (node == NULL) {
+        yyerror("Memory allocation failed!");
+        return NULL;
+    }
+    return node;
+}
+
 // Called when an INT or DOUBLE token is encountered (see ciLisp.l and ciLisp.y).
 // Creates an AST_NODE for the number.
 // Sets the AST_NODE's type to number.
 // Populates the value of the contained NUMBER_AST_NODE with the argument value.
 // SEE: AST_NODE, NUM_AST_NODE, AST_NODE_TYPE.
-AST_NODE *createNumberNode(double value, NUM_TYPE type)
-{
-    AST_NODE *node;
-    size_t nodeSize;
-
-    // allocate space for the fixed size and the variable part (union)
-    nodeSize = sizeof(AST_NODE);
-    if ((node = calloc(nodeSize, 1)) == NULL)
-        yyerror("Memory allocation failed!");
-
+AST_NODE *createNumberNode(double value, NUM_TYPE type) {
+    AST_NODE *node = createNewNode(NUM_NODE_TYPE);
     // TODO set the AST_NODE's type, assign values to contained NUM_AST_NODE DONE
     node->data.number.type = type;
-    node->type = NUM_NODE_TYPE;
-    //populate this with the type that was past in and the value
-    switch(type){
-
-        case INT_TYPE:
-           node->data.number.value = value;
-            break;
-        case DOUBLE_TYPE:
-            node->data.number.value = value;
-            break;
-
-    }
-
+    node->data.number.value = (type == INT_TYPE) ? floor(value) : value;
     return node;
 }
 
@@ -86,118 +136,121 @@ AST_NODE *createNumberNode(double value, NUM_TYPE type)
 //      - An OPER_TYPE (the enum identifying the specific function being called)
 //      - 2 AST_NODEs, the operands
 // SEE: AST_NODE, FUNC_AST_NODE, AST_NODE_TYPE.
-AST_NODE *createFunctionNode(char *funcName, AST_NODE *op1, AST_NODE *op2) {
-    AST_NODE *node;
-    size_t nodeSize;
-
-    // allocate space (or error)
-    nodeSize = sizeof(AST_NODE);
-    if ((node = calloc(nodeSize, 1)) == NULL)
-        yyerror("Memory allocation failed!");
-
+AST_NODE *createFunctionNode(char *funcName, AST_NODE *opList) {
+    AST_NODE *node = createNewNode(FUNC_NODE_TYPE);
     // TODO set the AST_NODE's type, populate contained FUNC_AST_NODE DONE
-    // NOTE: you do not need to populate the "ident" field unless the function is type CUSTOM_OPER.
-    // When you do have a CUSTOM_OPER, you do NOT need to allocate and strcpy here.
-    // The funcName will be a string identifier for which space should be allocated in the tokenizer.
-    // For CUSTOM_OPER functions, you should simply assign the "ident" pointer to the passed in funcName.
-    // For functions other than CUSTOM_OPER, you should free the funcName after you're assigned the OPER_TYPE.
-    node->type = FUNC_NODE_TYPE;
+    node->data.function.ident = funcName;
     node->data.function.oper = resolveFunc(funcName);
-    node->data.function.op1 = op1;
-    op1->parent = node;
-    if (op2 != NULL) {
-        node->data.function.op2 = op2;
-        op2->parent = node;
-    }else{
-
-        printf("error op2 is NULL\n");
-
+    node->data.function.opList = opList;
+    AST_NODE *elem = opList;
+    while (elem != NULL) {
+        elem->parent = node;
+        elem = elem->next;
     }
-
     return node;
 }
 
-AST_NODE *createAST_SymbolNode(char *id){
-    AST_NODE *node;
-    size_t nodeSize;
-
-    // allocate space (or error)
-    nodeSize = sizeof(AST_NODE);
-    if ((node = calloc(nodeSize, 1)) == NULL)
-        yyerror("Memory allocation failed!");
-
-    node->type = SYMBOL_NODE_TYPE;
-    node->parent = NULL;
-
-    //setting the ident pointer to the id pointers
-    //ident is now the same address as id
+AST_NODE *createAST_SymbolNode(char *id) {
+    //TODO create the AST symbolNode
+    AST_NODE *node = createNewNode(SYMBOL_NODE_TYPE);
     node->data.symbol.ident = id;
-
     return node;
 }
 
-AST_NODE *linkScopeToLetList(SYMBOL_TABLE_NODE *letList, AST_NODE *scope){
-
-    scope->symbolTable = letList;
-    SYMBOL_TABLE_NODE *temp=letList;
-    while(temp != NULL){
-
-        temp->val->parent = scope;
-        temp = temp->next;
-    }
-
-    return  scope;
-}
-SYMBOL_TABLE_NODE *createSymTableNode(char *id, AST_NODE *value){
-    SYMBOL_TABLE_NODE *node;
-    size_t nodeSize;
-
-    // allocate space (or error)
-    nodeSize = sizeof(SYMBOL_TABLE_NODE);
-    if ((node = calloc(nodeSize, 1)) == NULL)
-        yyerror("Memory allocation failed!");
-
-    //set the string name
+SYMBOL_TABLE_NODE *createSymTableNode(char *id, AST_NODE *value, NUM_TYPE number) {
+    //TODO create the symbol table node here DONE
+    SYMBOL_TABLE_NODE *node = createNewSymbol();
+    node->val_type = number;
     node->ident = id;
-
-    //now set the nodes value
     node->val = value;
-    //set the node.next to null to make sure its not pointing to garbage data
-    node->next = NULL;
+    return node;
+}
 
+AST_NODE *linkSExprList(AST_NODE *sExpr, AST_NODE *sExprList) {
+    //TODO links the ast sExpr to the letList DONE
+    sExpr->next = sExprList;
+    return sExpr;
+}
+
+//good example of how to use pointers
+AST_NODE *linkScopeToLetList(SYMBOL_TABLE_NODE *letList, AST_NODE *s_expr) {
+    //TODO links the scope AST_NODE to the letList DONE
+    SYMBOL_TABLE_NODE * linker = letList;
+    if (letList == NULL)
+        return s_expr;
+    SYMBOL_TABLE_NODE **scope = &(s_expr->symbolTable);
+    while (*scope) {
+        scope = &((*scope)->next);
+    }
+    (*scope) = letList;
+    while(linker != NULL) {
+
+        linker->val->parent = s_expr;
+        linker = linker->next;
+    }
+    return s_expr;
+}
+
+AST_NODE *createCondNode(AST_NODE *cond, AST_NODE *truth, AST_NODE *notTruth) {
+
+    AST_NODE *node = createNewNode(COND_NODE_TYPE);
+    cond->parent = node;
+    truth->parent = node;
+    notTruth->parent = node;
+    node->data.condition.cond = cond;
+    node->data.condition.doWhenTrue = truth;
+    node->data.condition.doWhenFalse = notTruth;
 
     return node;
 }
 
-SYMBOL_TABLE_NODE *linkSymbolTable(SYMBOL_TABLE_NODE *prevHead, SYMBOL_TABLE_NODE *newHead){
-    //set the new head to the previous one
+
+SYMBOL_TABLE_NODE *linkSymbolTable(SYMBOL_TABLE_NODE *prevHead, SYMBOL_TABLE_NODE *newHead) {
+    //TODO set the new head to the previous one DONE
     newHead->next = prevHead;
-
     return newHead;
+}
 
+void freeFuncOpList(AST_NODE *opList) {
+    if (opList == NULL)
+        return;
+    freeFuncOpList(opList->next);
+    freeNode(opList);
+}
+
+void freeFuncNode(AST_NODE *node) {
+    free(node->data.function.ident);
+    freeFuncOpList(node->data.function.opList);
+}
+
+void freeSymNode(AST_NODE *node) {
+    free(node->data.symbol.ident);
+}
+
+void freeSymTableNode(SYMBOL_TABLE_NODE *node) {
+    if (node == NULL)
+        return;
+    freeSymTableNode(node->next);
+    free(node->ident);
+    freeNode(node->val);
+    free(node);
 }
 
 // Called after execution is done on the base of the tree.
 // (see the program production in ciLisp.y)
 // Recursively frees the whole abstract syntax tree.
 // You'll need to update and expand freeNode as the project develops.
-void freeNode(AST_NODE *node)
-{
+void freeNode(AST_NODE *node) {
     if (!node)
         return;
 
     if (node->type == FUNC_NODE_TYPE)
-    {
-        // Recursive calls to free child nodes
-        freeNode(node->data.function.op1);
-        freeNode(node->data.function.op2);
+        freeFuncNode(node);
 
-        // Free up identifier string if necessary
-        if (node->data.function.oper == CUSTOM_OPER)
-        {
-            free(node->data.function.ident);
-        }
-    }
+    if (node->type == SYMBOL_NODE_TYPE)
+        freeSymNode(node);
+
+    freeSymTableNode(node->symbolTable);
 
     free(node);
 }
@@ -206,40 +259,41 @@ void freeNode(AST_NODE *node)
 // returns a RET_VAL storing the the resulting value and type.
 // You'll need to update and expand eval (and the more specific eval functions below)
 // as the project develops.
-RET_VAL eval(AST_NODE *node)
-{
+RET_VAL eval(AST_NODE *node) {
     if (!node)
-        return (RET_VAL){INT_TYPE, NAN};
+        return (RET_VAL) {INT_TYPE, NAN};
 
     RET_VAL result = {INT_TYPE, NAN}; // see NUM_AST_NODE, because RET_VAL is just an alternative name for it.
 
-    // TODO complete the switch. DONE
+    // TODO complete the switch. DONE so far..
     // Make calls to other eval functions based on node type.
     // Use the results of those calls to populate result.
-    switch (node->type){
+    switch (node->type) {
 
         case FUNC_NODE_TYPE:
-            result = evalFuncNode(&node->data.function);
+            result = evalFuncNode(node);
             break;
         case NUM_NODE_TYPE:
             result = evalNumNode(&node->data.number);
             break;
         case SYMBOL_NODE_TYPE:
-            result = evalSymbolNode(node);
+            result = evalSymbolNode(&node->data.symbol, node);
+            break;
+        case COND_NODE_TYPE:
+            result = evalCondNode(&node->data.condition);
             break;
         default:
             yyerror("Invalid AST_NODE_TYPE, probably invalid writes somewhere!");
     }
 
     return result;
-}  
+}
 
 // returns a pointer to the NUM_AST_NODE (aka RET_VAL) referenced by node.
 // DOES NOT allocate space for a new RET_VAL.
-RET_VAL evalNumNode(NUM_AST_NODE *numNode)
-{
+RET_VAL evalNumNode(NUM_AST_NODE *numNode) {
     if (!numNode)
-        return (RET_VAL){INT_TYPE, NAN};
+        return (RET_VAL) {INT_TYPE, NAN};
 
     RET_VAL result = {INT_TYPE, NAN};
 
@@ -251,18 +305,74 @@ RET_VAL evalNumNode(NUM_AST_NODE *numNode)
     return result;
 }
 
-RET_VAL evalFuncNode(FUNC_AST_NODE *funcNode)
-{
-    if (!funcNode)
-        return (RET_VAL){INT_TYPE, NAN};
+//task 5
+int getArity(FUNC_AST_NODE *node) {
+    switch (node->oper) {
 
-    RET_VAL result = {INT_TYPE, NAN};
+        case READ_OPER:
+        case RAND_OPER:
+            return ZEROARY;
 
+        case NEG_OPER:
+        case ABS_OPER:
+        case EXP_OPER:
+        case SQRT_OPER:
+        case CBRT_OPER:
+        case EXP2_OPER:
+            return UNARY;
 
-    // TODO populate result with the result of running the function on its operands. DONE
-    // SEE: AST_NODE, AST_NODE_TYPE, FUNC_AST_NODE
-    switch(funcNode->oper){
+        case POW_OPER:
+        case MAX_OPER:
+        case MIN_OPER:
+        case HYPOT_OPER:
+       // case READ_OPER:
+        //case RAND_OPER:
+        case EQUAL_OPER:
+        case LESS_OPER:
+        case LOG_OPER:
+        case GREATER_OPER:
+        case DIV_OPER:
+        case REMAINDER_OPER:
+        case SUB_OPER:
+            return BINARY;
 
+        case PRINT_OPER:
+        case MULT_OPER:
+        case ADD_OPER:
+            return NARY;
+
+        default:
+            return NULLARY;
+    }
+}
+
+RET_VAL evalZeroAry(AST_NODE *root){
+    RET_VAL result = DEFAULT_RET_VAL;
+
+    switch(root->data.function.oper){
+        case READ_OPER:
+            result = read_Helper(root);
+            break;
+        case RAND_OPER:
+            result = rand_Helper(root);
+            break;
+        default:
+            break;
+    }
+    return result;
+}
+
+RET_VAL evalUnary(FUNC_AST_NODE *funcNode) {
+    RET_VAL result = DEFAULT_RET_VAL;
+    if (funcNode->opList == NULL) {
+        printf(" ERROR: too few parameters for the function %s", funcNode->ident);
+        return result;
+    }
+    if (funcNode->opList->next != NULL) {
+        printf("WARNING: too many parameters for the function %s\n", funcNode->ident);
+    }
+
+    switch (funcNode->oper) {
         case NEG_OPER:
             result = neg_Helper(funcNode);
             break;
@@ -275,14 +385,36 @@ RET_VAL evalFuncNode(FUNC_AST_NODE *funcNode)
         case SQRT_OPER:
             result = sqrt_Helper(funcNode);
             break;
-        case ADD_OPER:
-            result = add_Helper(funcNode);
+        case LOG_OPER:
+            result = log_Helper(funcNode);
             break;
+        case EXP2_OPER:
+            result = exp2_Helper(funcNode);
+            break;
+        case CBRT_OPER:
+            result = cbrt_Helper(funcNode);
+            break;
+        default:
+            break;
+    }
+    return result;
+}
+
+
+RET_VAL evalBinary(FUNC_AST_NODE *funcNode) {
+
+    RET_VAL result = DEFAULT_RET_VAL;
+    if (funcNode->opList == NULL) {
+        printf(" ERROR: too few parameters for the function %s", funcNode->ident);
+        return result;
+    }
+    if (funcNode->opList->next->next != NULL) {
+        printf("WARNING: too many parameters for the function %s\n", funcNode->ident);
+    }
+    switch (funcNode->oper) {
+
         case SUB_OPER:
             result = subtract_Helper(funcNode);
-            break;
-        case MULT_OPER:
-            result = multiply_Helper(funcNode);
             break;
         case DIV_OPER:
             result = divide_Helper(funcNode);
@@ -300,56 +432,248 @@ RET_VAL evalFuncNode(FUNC_AST_NODE *funcNode)
             result = max_Helper(funcNode);
             break;
         case MIN_OPER:
-           result = min_Helper(funcNode);
-            break;
-        case EXP2_OPER:
-            result = exp2_Helper(funcNode);
-            break;
-        case CBRT_OPER:
-            result = cbrt_Helper(funcNode);
+            result = min_Helper(funcNode);
             break;
         case HYPOT_OPER:
             result = hypot_Helper(funcNode);
             break;
+        case EQUAL_OPER:
+            result = equal_Helper(funcNode);
+            break;
+        case LESS_OPER:
+            result = less_Helper(funcNode);
+            break;
+        case GREATER_OPER:
+            result = greater_Helper(funcNode);
+            break;
 
+        default:
+            break;
+    }
+
+    return result;
+
+}
+
+RET_VAL evalNary(FUNC_AST_NODE *funcNode) {
+    RET_VAL result = DEFAULT_RET_VAL;
+    if (funcNode->opList == NULL) {
+        printf(" ERROR: too few parameters for the function %s", funcNode->ident);
+        return result;
+    }
+
+
+    switch (funcNode->oper) {
+        case ADD_OPER:
+            result = add_Helper(funcNode);
+            break;
+        case MULT_OPER:
+            result = multiply_Helper(funcNode);
+            break;
+        case PRINT_OPER:
+            result = printHelper(funcNode);
+            break;
+        default:
+            printf("error in evalNary wrong OPER");
+            break;
     }
 
     return result;
 }
 
-RET_VAL evalSymbolNode(AST_NODE *symNode){
-    if (!symNode)
-        return (RET_VAL){INT_TYPE, NAN};
+RET_VAL evalFuncNode(AST_NODE *node) {
+    if (!node)
+        return (RET_VAL) {INT_TYPE, NAN};
 
+    FUNC_AST_NODE *funcNode = &(node->data.function);
     RET_VAL result = {INT_TYPE, NAN};
-    AST_NODE *tempAST_Node = symNode;
-    SYMBOL_TABLE_NODE *tempSymbolTableNode = symNode->symbolTable;
-    char *symbol = symNode->data.symbol.ident;
 
-    while(tempAST_Node != NULL){
-        tempSymbolTableNode = tempAST_Node->symbolTable;
-        while(tempSymbolTableNode != NULL){
+    if(funcNode->oper == CUSTOM_OPER){
 
-            if(strcmp(symbol,tempSymbolTableNode->ident) == 0){
+        SYMBOL_TABLE_NODE * function = findSymbolTable(funcNode->ident,node);
+        AST_NODE * currentVar = funcNode->opList;
+        SYMBOL_TABLE_NODE * someVar = function->val->symbolTable;
 
-                result = eval(tempSymbolTableNode->val);
-                return  result;
+        RET_VAL_HOLDER * evalOperands = calloc(sizeof(RET_VAL_HOLDER),1);
+        RET_VAL_HOLDER * head = evalOperands;
+        while(currentVar != NULL){
+
+            head->currentRetVal = eval(currentVar);
+            currentVar = currentVar->next;
+            if(currentVar != NULL){
+                head->next = calloc(sizeof(RET_VAL_HOLDER),1);
+                head = head->next;
             }
-            tempSymbolTableNode = tempSymbolTableNode->next;
+        }
+        while(evalOperands != NULL){
+
+            someVar->stack = evalOperands->currentRetVal;
+            someVar = someVar->next;
+            evalOperands = evalOperands->next;
 
         }
-        tempAST_Node = tempAST_Node->parent;
+
+        result = eval(function->val);
+    }else {
+
+        int arity = getArity(funcNode);
+        switch (arity) {
+            case ZEROARY:
+                result = evalZeroAry(node);
+                break;
+            case UNARY:
+                result = evalUnary(funcNode);
+                break;
+            case BINARY:
+                result = evalBinary(funcNode);
+                break;
+            case NARY:
+                result = evalNary(funcNode);
+                break;
+            default:
+                break;
+        }
     }
+    //Maybe some flooring for int result type 
+    return result;
+}
+
+NUM_TYPE resolveType(NUM_TYPE a, NUM_TYPE b) {
+    if (a == DOUBLE_TYPE || b == DOUBLE_TYPE)
+        return DOUBLE_TYPE;
+    if (a == INT_TYPE || b == INT_TYPE)
+        return INT_TYPE;
+    return NULL_TYPE;
+}
+
+RET_VAL evalSymbolNode(SYMBOL_AST_NODE * symbolNode, AST_NODE * parent) {
+    //Must have node to do work
+    if (!symbolNode)
+        return DEFAULT_RET_VAL;
+
+    //Must find symbol to eval
+    SYMBOL_TABLE_NODE *symbol = findSymbolTable(symbolNode->ident, parent);
+    if (symbol == NULL) {
+        yyerror("Unexpected identifier");
+        return DEFAULT_RET_VAL;
+    }
+//add here
+    RET_VAL result ;
+
+    switch(symbol->type){
+
+        case VARIABLE_TYPE:
+            result = evalVariableTypeNode(symbol);
+            break;
+        case ARG_TYPE:
+            result = evalArgTypeNode(symbol);
+            break;
+    }
+
+    //Do you lose precision after eval?
+    if (symbol->val_type == INT_TYPE && result.type == DOUBLE_TYPE) {
+        fprintf(stdout, "WARNING: precision loss in the assignment for variable %s\n", symbol->ident);
+        result.value = floor(result.value);
+    }
+
+    //Determine resulting type
+    result.type = resolveType(result.type, symbol->val_type);
 
     return result;
 }
 
 
 
-RET_VAL neg_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL evalArgTypeNode(SYMBOL_TABLE_NODE * argType){
+
+    if(!argType)
+        return DEFAULT_RET_VAL;
+
+    return argType->stack;
+
+
+}
+
+RET_VAL evalVariableTypeNode(SYMBOL_TABLE_NODE * variableType){
+    if(!variableType)
+        return DEFAULT_RET_VAL;
+    RET_VAL result = eval(variableType->val);
+
+    variableType->val->type = NUM_NODE_TYPE;
+    variableType->val->data.number.value = result.value;
+    variableType->val->data.number.type = result.type;
+
+    return result;
+}
+
+
+RET_VAL evalCondNode(COND_AST_NODE *condNode) {
+
+    if (!condNode)
+        return DEFAULT_RET_VAL;
+
+    RET_VAL result = eval(condNode->cond);
+
+    if (result.value) {
+        result = eval(condNode->doWhenTrue);
+    } else {
+        result = eval(condNode->doWhenFalse);
+
+    }
+    return result;
+}
+
+SYMBOL_TABLE_NODE *findSymbolTable(char *ident, AST_NODE * current) {
+
+    //Had daddy issues
+    if (current == NULL)
+        return NULL;
+
+    SYMBOL_TABLE_NODE *scope = current->symbolTable;
+    while (scope != NULL) {
+        if (strcmp(scope->ident, ident) == 0)
+            return scope;
+        scope = scope->next;
+    }
+
+    return findSymbolTable(ident, current->parent);
+}
+
+SYMBOL_TABLE_NODE *createCustomFuncNode(NUM_TYPE type, char * symbol, SYMBOL_TABLE_NODE * argList, AST_NODE * sExprList ){
+
+    SYMBOL_TABLE_NODE * customFuncNode = createNewSymbol();
+    customFuncNode->type = LAMBDA_TYPE;
+    customFuncNode->val_type = type;
+    customFuncNode->ident = symbol;
+    customFuncNode->val = sExprList;
+    sExprList->symbolTable = argList;
+
+
+    return customFuncNode;
+}
+
+SYMBOL_TABLE_NODE *createArgNode(char * argSymbol, SYMBOL_TABLE_NODE * argList){
+
+    SYMBOL_TABLE_NODE * customArgNode = createNewSymbol();
+    customArgNode->val_type = NULL_TYPE;
+    customArgNode->type =  ARG_TYPE;
+    customArgNode->ident = argSymbol;
+    customArgNode->next = argList;
+//    while( argList != NULL){
+//
+//        customArgNode->next = argList;
+//        argList = argList->next;
+//
+//    }
+
+    return  customArgNode;
+}
+
+
+RET_VAL neg_Helper(FUNC_AST_NODE *funcNode) {
     //TODO negate the negOp DONE
     RET_VAL negResult = {INT_TYPE, NAN};
-    RET_VAL negOp = eval(funcNode->op1);
+    RET_VAL negOp = eval(funcNode->opList);
 
     //set the type to the negOp
     negResult.type = negOp.type;
@@ -359,157 +683,151 @@ RET_VAL neg_Helper(FUNC_AST_NODE *funcNode){
     return negResult;
 }
 
-RET_VAL abs_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL abs_Helper(FUNC_AST_NODE *funcNode) {
     // TODO implement abs() for double and int types DONE
-    RET_VAL absResult = {INT_TYPE,NAN};
-    RET_VAL absOp = eval(funcNode->op1);
+    RET_VAL absResult = {INT_TYPE, NAN};
+    RET_VAL absOp = eval(funcNode->opList);
     //access and set the type
     absResult.type = absOp.type;
-    //now set the values
-    if(absResult.value == INT_TYPE) {
+    //now set the values do the math then round if its and int
+    if (absResult.value == INT_TYPE) {
         absResult.value = round(fabs(absOp.value));
-    }else{
+    } else {
         absResult.value = fabs(absOp.value);
     }
 
     return absResult;
 }
 
-RET_VAL exp_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL exp_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement exp() for double and int types DONE
-    RET_VAL expResult = {INT_TYPE,NAN};
-    RET_VAL expOp = eval(funcNode->op1);
+    RET_VAL expResult = {INT_TYPE, NAN};
+    RET_VAL expOp = eval(funcNode->opList);
 
-    //
+    //access and set the type
     expResult.type = DOUBLE_TYPE;
-    //
+    //now set the value and do the calculations
     expResult.value = exp(expOp.value);
 
     return expResult;
 }
 
-RET_VAL sqrt_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL sqrt_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement sqrt() for double and int types DONE
-    RET_VAL sqrtResult = {INT_TYPE,NAN};
-    RET_VAL sqrtOp = eval(funcNode->op1);
-    //
+    RET_VAL sqrtResult = {INT_TYPE, NAN};
+    RET_VAL sqrtOp = eval(funcNode->opList);
+    //set result to double
     sqrtResult.type = DOUBLE_TYPE;
-    //
+    //then set thh result value to a sqrt
     sqrtResult.value = sqrt(sqrtOp.value);
 
     return sqrtResult;
 }
 
-RET_VAL add_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL add_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement add operation DONE
-    RET_VAL addResult = {INT_TYPE,NAN};
-    RET_VAL addOp1 = eval(funcNode->op1);
-    RET_VAL addOp2 = eval(funcNode->op2);
-
-    addResult.type = addOp1.type || addOp2.type;
-
-    if(addResult.type == INT_TYPE){
-        //if its an int make sure its not a double by rounding
-        addResult.value = round(addOp1.value + addOp2.value);
-        //addResult.value = round(addOp1.value) + round(addOp2.value);
-    }else{
-        addResult.value = addOp1.value + addOp2.value;
-    }
+    RET_VAL addResult = {NULL_TYPE, 0.0};
+    AST_NODE *args = funcNode->opList;
+    do {
+        RET_VAL temp = eval(args);
+        addResult.value += temp.value;
+        addResult.type = resolveType(addResult.type, temp.type);
+        args = args->next;
+    } while (args != NULL);
 
     return addResult;
 }
-RET_VAL subtract_Helper(FUNC_AST_NODE *funcNode){
+
+RET_VAL subtract_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement subtract operation DONE
-    RET_VAL subResult = {INT_TYPE,NAN};
-    RET_VAL minusOp1 = eval(funcNode->op1);
-    RET_VAL minusOp2 = eval(funcNode->op2);
+    RET_VAL subResult = {INT_TYPE, NAN};
+    RET_VAL minusOp1 = eval(funcNode->opList);
+    RET_VAL minusOp2 = eval(funcNode->opList->next);
 
     subResult.type = minusOp1.type || minusOp2.type;
-
-    if(subResult.type == INT_TYPE){
+    //if its an int make sure its not a double by rounding
+    if (subResult.type == INT_TYPE) {
 
         subResult.value = round(minusOp1.value - minusOp2.value);
-    }else{
+    } else {
         subResult.value = minusOp1.value - minusOp2.value;
     }
     return subResult;
 }
 
-RET_VAL multiply_Helper(FUNC_AST_NODE *funcNode){
-    //TODO implement multiply operation DONE
-    RET_VAL multResult = {INT_TYPE,NAN};
-    RET_VAL multOp1 = eval(funcNode->op1);
-    RET_VAL multOp2 = eval(funcNode->op2);
+RET_VAL multiply_Helper(FUNC_AST_NODE *funcNode) {
+    //TODO implement add operation DONE
+    RET_VAL multResult = {NULL_TYPE, 1.0};
+    AST_NODE *args = funcNode->opList;
+    do {
+        RET_VAL temp = eval(args);
+        multResult.value *= temp.value;
+        multResult.type = resolveType(multResult.type, temp.type);
+        args = args->next;
+    } while (args != NULL);
 
-    multResult.type = multOp1.type || multOp2.type;
-    //if the type isn't a double
-    if(multResult.type == INT_TYPE){
-        //make sure that we round to a whole number not  double
-        multResult.value = round(multOp1.value * multOp2.value);
-    }else{
-        //else the result is a double so dont worry about it
-        multResult.value = multOp1.value * multOp2.value;
-    }
     return multResult;
 }
 
-RET_VAL divide_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL divide_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement divide operation DONE
-    RET_VAL divResult = {INT_TYPE,NAN};
-    RET_VAL divOp1 = eval(funcNode->op1);
-    RET_VAL divOp2 = eval(funcNode->op2);
+    RET_VAL divResult = {INT_TYPE, NAN};
+    RET_VAL divOp1 = eval(funcNode->opList);
+    RET_VAL divOp2 = eval(funcNode->opList->next);
 
     divResult.type = divOp1.type || divOp2.type;
-
-    if(divResult.type == INT_TYPE){
-        divResult.value = round(divOp1.value/divOp2.value);
-    }else{
-        divResult.value = divOp1.value/divOp2.value;
+    //if its an int make sure its not a double by rounding
+    if (divResult.type == INT_TYPE) {
+        divResult.value = round(divOp1.value / divOp2.value);
+    } else {
+        divResult.value = divOp1.value / divOp2.value;
     }
     return divResult;
 }
 
-RET_VAL remainder_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL remainder_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement mod operation DONE
-    RET_VAL modResult = {INT_TYPE,NAN};
-    RET_VAL modOp1 = eval(funcNode->op1);
-    RET_VAL modOp2 = eval(funcNode->op2);
+    RET_VAL modResult = {INT_TYPE, NAN};
+    RET_VAL modOp1 = eval(funcNode->opList);
+    RET_VAL modOp2 = eval(funcNode->opList->next);
 
     modResult.type = modOp1.type || modOp2.type;
-    if(modResult.type == INT_TYPE) {
+    //if its an int make sure its not a double by rounding
+    if (modResult.type == INT_TYPE) {
         modResult.value = round(remainder(modOp1.value, modOp2.value));
-    }else{
-        modResult.value = remainder(modOp1.value,modOp2.value);
+    } else {
+        modResult.value = remainder(modOp1.value, modOp2.value);
     }
     return modResult;
 }
 
-RET_VAL log_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL log_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement log operation DONE
-    RET_VAL logResult = {INT_TYPE,NAN};
-    RET_VAL logOp1 = eval(funcNode->op1);
-   // RET_VAL logOp2 = eval(funcNode->op2);
-
-   logResult.type = logOp1.type;
-   logResult.value = log(logOp1.value);
+    RET_VAL logResult = {INT_TYPE, NAN};
+    RET_VAL logOp1 = eval(funcNode->opList);
+    //set the results type to the operands type
+    logResult.type = logOp1.type;
+    //now calculate its value and set its result
+    logResult.value = log(logOp1.value);
 
     return logResult;
 }
+
 //pow(double x, double y)
-RET_VAL pow_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL pow_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement POW operation DONE
-    RET_VAL powResult = {INT_TYPE,NAN};
-    RET_VAL powOp1 = eval(funcNode->op1);
-    RET_VAL powOp2 = eval(funcNode->op2);
+    RET_VAL powResult = {INT_TYPE, NAN};
+    RET_VAL powOp1 = eval(funcNode->opList);
+    RET_VAL powOp2 = eval(funcNode->opList->next);
     //set the type to the x.type
     powResult.type = powOp1.type;
-    if(powResult.type == INT_TYPE){
+    if (powResult.type == INT_TYPE) {
         //pow(double x, double y)
         // x raised to the power y
         //so powOp1raised to the power of powOp2
-        powResult.value = round(pow(powOp1.value,powOp2.value));
-    }else{
-            powResult.value = pow(powOp1.value,powOp2.value);
+        powResult.value = round(pow(powOp1.value, powOp2.value));
+    } else {
+        powResult.value = pow(powOp1.value, powOp2.value);
     }
 
     return powResult;
@@ -517,22 +835,22 @@ RET_VAL pow_Helper(FUNC_AST_NODE *funcNode){
 
 
 //the fmax() functions return x or y, whichever is bigger.
-RET_VAL max_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL max_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement max operation DONE
-    RET_VAL maxResult = {INT_TYPE,NAN};
-    RET_VAL maxOp1 = eval(funcNode->op1);
-    RET_VAL maxOp2 = eval(funcNode->op2);
+    RET_VAL maxResult = {INT_TYPE, NAN};
+    RET_VAL maxOp1 = eval(funcNode->opList);
+    RET_VAL maxOp2 = eval(funcNode->opList);
 
     maxResult.type = maxOp1.type || maxOp2.type;
 
-    if(maxResult.type == INT_TYPE){
+    if (maxResult.type == INT_TYPE) {
         //the fmax() functions return x or y, whichever is bigger.
         //set the result to the max
-        maxResult.value = round(fmax(maxOp1.value,maxOp2.value));
-    }else{
+        maxResult.value = round(fmax(maxOp1.value, maxOp2.value));
+    } else {
         //the fmax() functions return x or y, whichever is bigger.
         //set the result to the max
-        maxResult.value = fmax(maxOp1.value,maxOp2.value);
+        maxResult.value = fmax(maxOp1.value, maxOp2.value);
 
     }
 
@@ -540,88 +858,194 @@ RET_VAL max_Helper(FUNC_AST_NODE *funcNode){
 }
 
 //the fmin() functions return x or y, whichever is smaller.
-RET_VAL min_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL min_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement min operation DONE
-    RET_VAL minResult = {INT_TYPE,NAN};
-    RET_VAL minOp1 = eval(funcNode->op1);
-    RET_VAL minOp2 = eval(funcNode->op2);
+    RET_VAL minResult = {INT_TYPE, NAN};
+    RET_VAL minOp1 = eval(funcNode->opList);
+    RET_VAL minOp2 = eval(funcNode->opList->next);
 
     minResult.type = minOp1.type || minOp2.type;
 
-    if(minResult.type == INT_TYPE){
+    if (minResult.type == INT_TYPE) {
         //the fmin() functions return x or y, whichever is smaller.
-        minResult.value = round(fmin(minOp1.value,minOp2.value));
-    }else{
+        minResult.value = round(fmin(minOp1.value, minOp2.value));
+    } else {
         //the fmin() functions return x or y, whichever is smaller.
-        minResult.value = fmin(minOp1.value,minOp2.value);
+        minResult.value = fmin(minOp1.value, minOp2.value);
     }
 
     return minResult;
 }
+
 //The exp2() function computes 2**x, the base-2 exponential of x.
-RET_VAL exp2_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL exp2_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement exp2 operation DONE
-    RET_VAL exp2Result = {INT_TYPE,NAN};
-    RET_VAL exp2Op1 = eval(funcNode->op1);
+    RET_VAL exp2Result = {INT_TYPE, NAN};
+    RET_VAL exp2Op1 = eval(funcNode->opList);
 
     exp2Result.type = exp2Op1.type;
-    if(exp2Result.type == INT_TYPE){
+    if (exp2Result.type == INT_TYPE) {
         exp2Result.value = round(exp2(exp2Op1.value));
-    }else{
+    } else {
         exp2Result.value = exp2(exp2Op1.value);
     }
 
     return exp2Result;
 }
+
 //The cbrt() function computes the cube root of x.
-RET_VAL cbrt_Helper(FUNC_AST_NODE *funcNode){
+RET_VAL cbrt_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement cbrt aka cubed root  operation DONE
-    RET_VAL cbrtResult = {INT_TYPE,NAN};
-    RET_VAL cbrtOp1 = eval(funcNode->op1);
+    RET_VAL cbrtResult = {INT_TYPE, NAN};
+    RET_VAL cbrtOp1 = eval(funcNode->opList);
 
     cbrtResult.type = cbrtOp1.type;
 
-    if(cbrtResult.type==INT_TYPE){
+    if (cbrtResult.type == INT_TYPE) {
         cbrtResult.value = round(cbrt(cbrtOp1.value));
-    }else{
+    } else {
         cbrtResult.value = cbrt(cbrtOp1.value);
     }
 
     return cbrtResult;
 }
-RET_VAL hypot_Helper(FUNC_AST_NODE *funcNode){
+
+RET_VAL hypot_Helper(FUNC_AST_NODE *funcNode) {
     //TODO implement subtract operation DONE
-    RET_VAL hypotResult = {INT_TYPE,NAN};
-    RET_VAL hypotOp1 = eval(funcNode->op1);
-    RET_VAL hypotOp2 = eval(funcNode->op2);
+    RET_VAL hypotResult = {INT_TYPE, NAN};
+    RET_VAL hypotOp1 = eval(funcNode->opList);
+    RET_VAL hypotOp2 = eval(funcNode->opList->next);
 
     hypotResult.type = hypotOp1.type || hypotOp2.type;
 
-    if(hypotResult.type == INT_TYPE){
+    if (hypotResult.type == INT_TYPE) {
 
-        hypotResult.value = round(hypot(hypotOp1.value,hypotOp2.value));
-    }else{
+        hypotResult.value = round(hypot(hypotOp1.value, hypotOp2.value));
+    } else {
 
-        hypotResult.value = hypot(hypotOp1.value,hypotOp2.value);
+        hypotResult.value = hypot(hypotOp1.value, hypotOp2.value);
     }
 
     return hypotResult;
 }
 
+RET_VAL printHelper(FUNC_AST_NODE *funcNode) {
+    printf("=> ");
+    RET_VAL retVal = DEFAULT_RET_VAL;
+    AST_NODE *list = funcNode->opList;
+    do {
+        retVal = eval(list);
+
+        if (retVal.type == INT_TYPE)
+            printRetVal(retVal);
+        else
+            printRetVal(retVal);
+            list = list->next;
+    } while (list != NULL);
+    printf("\n");
+    return retVal;
+}
+
+RET_VAL rand_Helper(AST_NODE *node){
+
+    RET_VAL result = {DOUBLE_TYPE,(double)rand()/RAND_MAX};
+    node->type = NUM_NODE_TYPE;
+    node->data.number = result;
+
+    return  result;
+}
+
+RET_VAL read_Helper(AST_NODE *node){
+
+    RET_VAL readResult = {DOUBLE_TYPE,NAN};
+
+    //char buffer
+    char buffer[128];
+
+    printf("read := ");
+    scanf("%s", buffer);
+    getchar();
+    bool isDouble = false;
+
+    for(int i = 0; buffer[i] != '\0'; ++i){
+
+        switch(buffer[i]){
+
+            case'0'...'9':
+                break;
+            case '.':
+                if(!isDouble){
+                    isDouble = true;
+                    break;
+                }
+            case'-':
+                if(i==0){
+                    break;
+                }
+                break;
+            default:
+                yyerror("invalid, error during input of expression!");
+                node->type = NUM_NODE_TYPE;
+                node->data.number = readResult;
+                return readResult;
+        }
+    }
+    readResult.value = strtod(buffer,NULL);
+    if(!isDouble){
+        readResult.type = INT_TYPE ;
+    }
+    node->type = NUM_NODE_TYPE;
+    node->data.number = readResult;
+
+    return readResult;
+}
+
+RET_VAL equal_Helper(FUNC_AST_NODE *funcNode){
+    RET_VAL equalResult = {INT_TYPE, NAN};
+    RET_VAL equalOp1 = eval(funcNode->opList);
+    RET_VAL equalOp2 = eval(funcNode->opList->next);
+
+    equalResult.value = (equalOp1.value ==  equalOp2.value);
+
+    return equalResult;
+
+}
+
+RET_VAL less_Helper(FUNC_AST_NODE *funcNode){
+    RET_VAL lessResult = {INT_TYPE, NAN};
+    RET_VAL lessOp1 = eval(funcNode->opList);
+    RET_VAL lessOp2 = eval(funcNode->opList->next);
+
+    lessResult.value = (lessOp1.value < lessOp2.value);
+
+    return lessResult;
+}
+
+RET_VAL greater_Helper(FUNC_AST_NODE *funcNode){
+    RET_VAL greaterResult = {INT_TYPE, NAN};
+    RET_VAL greaterOp1 = eval(funcNode->opList);
+    RET_VAL greaterOp2 = eval(funcNode->opList->next);
+
+    greaterResult.value = greaterOp1.value > greaterOp2.value;
+
+    return greaterResult;
+
+}
 
 // prints the type and value of a RET_VAL
-void printRetVal(RET_VAL val)
-{
-    // TODO print the type and value of the value passed in. DONE
-    switch(val.type){
+void printRetVal(RET_VAL val) {
+    // TODO if val type is int or double cast accordingly and then print
+    switch (val.type) {
 
         case INT_TYPE:
-            printf("%ld",(long)val.value);
+            //if its an in case it to a long to make sure its value isnt a double
+            printf("Integer value is %ld\n", (long) val.value);
+            break;
+        case NULL_TYPE:
+            printf("Null Value %.2lf\n", val.value);
             break;
         case DOUBLE_TYPE:
-            printf("%f",val.value);
+            printf("Double Value %.2lf\n", val.value);
             break;
-
     }
-
 }

@@ -46,33 +46,37 @@ typedef enum oper {
 
 OPER_TYPE resolveFunc(char *);
 
+
 // Types of Abstract Syntax Tree nodes.
 // Initially, there are only numbers and functions.
 // You will expand this enum as you build the project.
+// Types of numeric values
+typedef enum {
+    INT_TYPE,
+    DOUBLE_TYPE,
+    NULL_TYPE
+} NUM_TYPE;
 
-typedef struct symbol_table_node {
-    char *ident;
+typedef enum { VARIABLE_TYPE, LAMBDA_TYPE, ARG_TYPE } SYMBOL_TYPE;
+
+typedef struct stack_node {
     struct ast_node *val;
-    struct symbol_table_node *next;
-} SYMBOL_TABLE_NODE;
+    struct stack_node *next;
+} STACK_NODE;
+
+
 
 
 typedef enum {
     NUM_NODE_TYPE,
     FUNC_NODE_TYPE,
-    SYMBOL_NODE_TYPE
+    SYMBOL_NODE_TYPE,
+    COND_NODE_TYPE
 } AST_NODE_TYPE;
-
-// Types of numeric values
-typedef enum {
-    INT_TYPE = 0,
-    DOUBLE_TYPE
-} NUM_TYPE;
 
 // Node to store a number.
 typedef struct {
     NUM_TYPE type;
-
     double value;
 } NUM_AST_NODE;
 
@@ -80,6 +84,15 @@ typedef struct {
 // They have the same structure as a NUM_AST_NODE.
 // The line below allows us to give this struct another name for readability.
 typedef NUM_AST_NODE RET_VAL;
+
+typedef struct symbol_table_node {
+    SYMBOL_TYPE type;
+    NUM_TYPE val_type;
+    char * ident;
+    struct ast_node * val;
+    RET_VAL stack;
+    struct symbol_table_node * next;
+} SYMBOL_TABLE_NODE;
 // num ast parse?
 //eval retval?
 
@@ -87,69 +100,67 @@ typedef NUM_AST_NODE RET_VAL;
 typedef struct {
     OPER_TYPE oper;
     char* ident; // only needed for custom functions
-    struct ast_node *op1;
-    struct ast_node *op2;
+    //HEY!! WHY DO I NEED TO DELETE THIS???
+    struct ast_node *opList;
 } FUNC_AST_NODE;
 
 typedef struct symbol_ast_node {
     char *ident;
 } SYMBOL_AST_NODE;
 
+
+typedef struct {
+    struct ast_node * cond;
+    struct ast_node * doWhenTrue; // to eval if cond is nonzero
+    struct ast_node * doWhenFalse; // to eval if cond is zero
+} COND_AST_NODE;
+
 // Generic Abstract Syntax Tree node. Stores the type of node,
 // and reference to the corresponding specific node (initially a number or function call).
 typedef struct ast_node {
     AST_NODE_TYPE type;
-    SYMBOL_TABLE_NODE *symbolTable;
-    struct ast_node *parent;
+    SYMBOL_TABLE_NODE * symbolTable;
+    struct ast_node * parent;
     union {
         NUM_AST_NODE number;
         SYMBOL_AST_NODE symbol;
         FUNC_AST_NODE function;
+        COND_AST_NODE condition;
     } data;
+    struct ast_node *next;
 } AST_NODE;
 
-AST_NODE *createNumberNode(double value, NUM_TYPE type);
+typedef struct ret_val_holder {
 
-AST_NODE *createFunctionNode(char *funcName, AST_NODE *op1, AST_NODE *op2);
-
-//adding new stuff below here
-AST_NODE *createAST_SymbolNode (char *id);
-
-AST_NODE *linkScopeToLetList(SYMBOL_TABLE_NODE *letLList, AST_NODE *scope);
-
-SYMBOL_TABLE_NODE *createSymTableNode(char *id, AST_NODE *value);
-
-SYMBOL_TABLE_NODE *linkSymbolTable(SYMBOL_TABLE_NODE *prevHead, SYMBOL_TABLE_NODE *newHead);
+    RET_VAL currentRetVal;
+    struct ret_val_holder *next;
 
 
+}RET_VAL_HOLDER;
 
-void freeNode(AST_NODE *node);
+AST_NODE * createNumberNode(double value, NUM_TYPE type);
+AST_NODE * createFunctionNode(char * funcName, AST_NODE * opList);
+AST_NODE * createAST_SymbolNode (char * id);
+AST_NODE *linkSExprList(AST_NODE * sExpr, AST_NODE * sExprList);
+AST_NODE *linkScopeToLetList(SYMBOL_TABLE_NODE * letList, AST_NODE * s_expr);
+AST_NODE * createCondNode(AST_NODE * cond, AST_NODE * truth, AST_NODE * notTruth);
 
-RET_VAL eval(AST_NODE *node);
-RET_VAL evalNumNode(NUM_AST_NODE *numNode);
-RET_VAL evalFuncNode(FUNC_AST_NODE *funcNode);
-RET_VAL evalSymbolNode(AST_NODE *symNode);
+SYMBOL_TABLE_NODE *createArgNode(char * argSymbol, SYMBOL_TABLE_NODE * argList);
+SYMBOL_TABLE_NODE *createCustomFuncNode(NUM_TYPE type, char * symbol, SYMBOL_TABLE_NODE * argList, AST_NODE * sExprList);
+SYMBOL_TABLE_NODE *createSymTableNode(char * id, AST_NODE * value, NUM_TYPE type);
+SYMBOL_TABLE_NODE *linkSymbolTable(SYMBOL_TABLE_NODE * prevHead, SYMBOL_TABLE_NODE * newHead);
+SYMBOL_TABLE_NODE *findSymbolTable(char * ident, AST_NODE * s_expr);
 
-//added helper methods for debugging assistance
-RET_VAL neg_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL abs_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL exp_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL sqrt_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL add_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL subtract_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL multiply_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL divide_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL remainder_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL log_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL pow_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL max_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL min_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL exp2_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL cbrt_Helper(FUNC_AST_NODE *funcNode);
-RET_VAL hypot_Helper(FUNC_AST_NODE *funcNode);
+RET_VAL eval(AST_NODE * node);
+RET_VAL evalNumNode(NUM_AST_NODE * numNode);
+RET_VAL evalFuncNode(AST_NODE * node);
+RET_VAL evalSymbolNode(SYMBOL_AST_NODE * symNode, AST_NODE * parent);
+RET_VAL evalCondNode(COND_AST_NODE * condNode);
+RET_VAL evalArgTypeNode(SYMBOL_TABLE_NODE * argType);
+RET_VAL evalVariableTypeNode(SYMBOL_TABLE_NODE * variableType);
 
 
-
+void freeNode(AST_NODE * node);
 void printRetVal(RET_VAL val);
 
 #endif
